@@ -1,0 +1,430 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<title>CUDA 向量加法 · 工作原理动画</title>
+<style>
+  :root{
+    --bg:#0d1220; --panel:#151c2e; --panel2:#1b2439; --line:#2a3550;
+    --text:#e7edfa; --dim:#8b9ac0; --blue:#4ea1ff; --green:#3fd77f;
+    --amber:#ffb347; --red:#ff6b6b; --cell:#1e2740;
+  }
+  *{box-sizing:border-box}
+  body{
+    margin:0; background:radial-gradient(1200px 600px at 50% -10%, #1a2440 0%, var(--bg) 60%);
+    color:var(--text); font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    min-height:100vh; padding:18px 22px 90px;
+  }
+  h1{font-size:20px;margin:0 0 2px;font-weight:600;letter-spacing:.5px}
+  .sub{color:var(--dim);font-size:13px;margin-bottom:14px}
+  header{display:flex;align-items:flex-end;justify-content:space-between;gap:16px;flex-wrap:wrap}
+  .controls{display:flex;gap:8px;align-items:center}
+  button{
+    background:var(--panel2); color:var(--text); border:1px solid var(--line);
+    padding:7px 13px; border-radius:8px; font-size:13px; cursor:pointer; transition:.15s;
+  }
+  button:hover{background:#243055;border-color:#3c4b73}
+  button.primary{background:linear-gradient(180deg,#2f6fd0,#2559ab);border-color:#3f7fd9}
+  #stepLabel{color:var(--dim);font-size:13px;min-width:70px;text-align:center;font-variant-numeric:tabular-nums}
+
+  .stage{display:grid;grid-template-columns:1fr 1fr;gap:16px;margin-top:6px}
+  @media(max-width:900px){.stage{grid-template-columns:1fr}}
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px;position:relative;overflow:hidden}
+  .panel:before{content:"";position:absolute;inset:0 0 auto 0;height:3px;background:var(--blue);opacity:.8}
+  .panel.dev:before{background:var(--green)}
+  .panel h2{font-size:13px;margin:0 0 12px;color:var(--dim);font-weight:500;letter-spacing:.6px}
+  .panel h2 b{color:var(--text);font-weight:600}
+
+  .row{display:flex;align-items:center;gap:8px;margin-bottom:11px;min-height:34px}
+  .label{width:52px;font-size:13px;color:var(--text);font-family:ui-monospace,Consolas,monospace;opacity:.9;flex:none}
+  .cells{display:flex;gap:4px;align-items:center}
+  .cell{
+    width:26px;height:26px;border-radius:6px;background:var(--cell);border:1px solid var(--line);
+    display:flex;align-items:center;justify-content:center;font-size:10px;color:var(--dim);
+    font-family:ui-monospace,Consolas,monospace;transition:.35s;
+  }
+  .cell.on{background:#2b4a86;border-color:#4a7fd1;color:#dbe8ff}
+  .cell.dev.on{background:#1e5c3c;border-color:#3fd77f;color:#c8ffdd}
+  .dots{color:var(--dim);font-size:12px;margin-left:2px}
+  .tag{font-size:11px;color:var(--dim);margin-left:6px;white-space:nowrap}
+  .tag.warn{color:var(--amber)}
+
+  .fade{opacity:0;transform:translateY(6px);transition:.4s}
+  .fade.on{opacity:1;transform:none}
+
+  .lower{display:grid;grid-template-columns:1.15fr 1fr;gap:16px;margin-top:16px}
+  @media(max-width:900px){.lower{grid-template-columns:1fr}}
+  pre.code{
+    margin:0;background:#0b1020;border:1px solid var(--line);border-radius:14px;padding:14px 16px;
+    font-family:ui-monospace,Consolas,"Cascadia Code",monospace;font-size:12.5px;line-height:1.85;
+    overflow:auto;max-height:290px;color:#b8c6e4;
+  }
+  pre.code .ln{display:block;padding:0 6px;border-radius:5px;transition:.25s;white-space:pre}
+  pre.code .ln.hi{background:#1d3363;color:#eaf2ff;box-shadow:inset 3px 0 0 var(--blue)}
+  pre.code .cm{color:#5f6f92}
+  pre.code .kw{color:#ff9ecb}
+
+  .smbox{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:14px 16px}
+  .smbox h3{margin:0 0 10px;font-size:13px;color:var(--dim);font-weight:500}
+  .sms{display:grid;grid-template-columns:repeat(13,1fr);gap:4px;margin-bottom:10px}
+  .sm{height:16px;border-radius:4px;background:var(--cell);border:1px solid var(--line);transition:.3s}
+  .sm.busy{background:linear-gradient(180deg,#2f6fd0,#24509b);border-color:#4a7fd1}
+  .sm.pulse{animation:pulse .9s infinite alternate}
+  @keyframes pulse{from{opacity:.45}to{opacity:1}}
+  .qinfo{font-size:12px;color:var(--dim);font-family:ui-monospace,monospace;line-height:1.9}
+  .qinfo b{color:var(--amber);font-weight:600}
+
+  .zoom{
+    margin-top:16px;background:linear-gradient(180deg,#161f36,#131a2b);border:1px solid #35528c;
+    border-radius:14px;padding:16px;display:none;
+  }
+  .zoom.on{display:block;animation:slidein .45s ease}
+  @keyframes slidein{from{opacity:0;transform:translateY(10px)}to{opacity:1;transform:none}}
+  .zoom h3{margin:0 0 12px;font-size:13px;color:var(--blue);font-weight:600}
+  .eq{display:flex;align-items:center;gap:10px;flex-wrap:wrap;font-family:ui-monospace,monospace;font-size:14px;margin-bottom:14px}
+  .tok{padding:5px 10px;border-radius:7px;background:#1e2740;border:1px solid var(--line)}
+  .tok.a{background:#2b4a86;border-color:#4a7fd1}
+  .tok.b{background:#5c3d12;border-color:#c08a3e;color:#ffe1b5}
+  .tok.c{background:#1e5c3c;border-color:#3fd77f;color:#c8ffdd}
+  .op{color:var(--dim)}
+  .threads{display:flex;gap:6px;margin:12px 0;flex-wrap:wrap}
+  .th{
+    width:44px;height:44px;border-radius:9px;background:var(--cell);border:1px solid var(--line);
+    display:flex;flex-direction:column;align-items:center;justify-content:center;font-size:9px;color:var(--dim);
+    font-family:ui-monospace,monospace;transition:.3s;
+  }
+  .th b{font-size:12px;color:#aab8d8;font-weight:600}
+  .th.active{background:#2b4a86;border-color:#6aa4ff;box-shadow:0 0 18px #3d7ad066;transform:translateY(-3px)}
+  .th.active b{color:#fff}
+  .readout{font-family:ui-monospace,monospace;font-size:13px;color:#c8d6f2;line-height:2}
+  .readout .k{color:var(--dim)}
+  .readout .v{color:#8fd6ff}
+  .readout .sum{color:var(--green);font-weight:600}
+
+  .narration{
+    position:fixed;left:0;right:0;bottom:0;padding:14px 24px 18px;
+    background:linear-gradient(180deg,rgba(13,18,32,0),rgba(13,18,32,.96) 35%);
+    backdrop-filter:blur(6px);
+  }
+  .nbox{max-width:1200px;margin:0 auto;display:flex;gap:14px;align-items:flex-start}
+  .badge{
+    flex:none;width:34px;height:34px;border-radius:10px;background:linear-gradient(180deg,#2f6fd0,#2559ab);
+    display:flex;align-items:center;justify-content:center;font-weight:700;font-size:14px;
+  }
+  .ntext{font-size:14px;line-height:1.75;color:#d7e2f7}
+  .ntext b{color:#fff}
+  .ntext code{background:#1b2740;padding:1px 6px;border-radius:5px;font-family:ui-monospace,monospace;font-size:12.5px;color:#9ecbff}
+
+  .chip{position:fixed;width:26px;height:26px;border-radius:6px;background:#4ea1ff;box-shadow:0 0 20px #4ea1ff99;pointer-events:none;z-index:99}
+
+  .okline{display:inline-flex;align-items:center;gap:8px;color:var(--green);font-weight:600}
+</style>
+</head>
+<body>
+
+<header>
+  <div>
+    <h1>vecAdd 到底是怎么跑起来的</h1>
+    <div class="sub">从 malloc 到对拍 · 十步动画 · ← → 键也可以切换</div>
+  </div>
+  <div class="controls">
+    <button id="reset">↺ 重来</button>
+    <button id="prev">← 上一步</button>
+    <button id="play" class="primary">▶ 自动播放</button>
+    <button id="next">下一步 →</button>
+    <span id="stepLabel">1 / 10</span>
+  </div>
+</header>
+
+<div class="stage">
+  <section class="panel host">
+    <h2>主机 <b>Host</b> · CPU + 内存 (RAM)</h2>
+    <div id="hostRows"></div>
+  </section>
+  <section class="panel dev">
+    <h2>设备 <b>Device</b> · GPU + 显存 (VRAM)</h2>
+    <div id="devRows"></div>
+  </section>
+</div>
+
+<div class="lower">
+  <pre class="code" id="code"></pre>
+  <div class="smbox">
+    <h3>显卡：26 个 SM（车间）</h3>
+    <div class="sms" id="sms"></div>
+    <div class="qinfo" id="qinfo">
+      <div>block 总数：<b>—</b></div>
+      <div>每个 block 线程数：<b>—</b></div>
+      <div>总线程数：<b>—</b></div>
+    </div>
+  </div>
+</div>
+
+<div class="zoom" id="zoom">
+  <h3>放大一个线程：它怎么知道该干哪份活</h3>
+  <div class="eq">
+    <span class="tok a">blockIdx.x = 3</span><span class="op">×</span>
+    <span class="tok a">blockDim.x = 256</span><span class="op">+</span>
+    <span class="tok a">threadIdx.x = 5</span><span class="op">=</span>
+    <span class="tok c" style="font-weight:700">i = 773</span>
+  </div>
+  <div class="threads" id="threads"></div>
+  <div class="readout">
+    <div><span class="k">读 a[773]</span> = <span class="v">773</span>，<span class="k">读 b[773]</span> = <span class="v">1546</span></div>
+    <div><span class="k">写 c[773]</span> = 773 + 1546 = <span class="sum">2319</span></div>
+    <div style="color:#8b9ac0;font-size:12px;margin-top:6px">
+      注意：CUDA 没有把数组切块给这个线程 —— 是它自己算出 773，才去读写第 773 个元素。
+    </div>
+  </div>
+</div>
+
+<div class="narration">
+  <div class="nbox">
+    <div class="badge" id="badge">1</div>
+    <div class="ntext" id="narration"></div>
+  </div>
+</div>
+
+<script>
+const N = 1 << 20;
+const BLOCK = 256;
+const GRID = Math.ceil(N / BLOCK);
+
+const CODE = [
+  {t:'float *h_a = (float*)malloc(bytes);', c:'// ① 主机内存'},
+  {t:'cudaMalloc(&d_a, bytes);', c:'// ② 显存分配'},
+  {t:'cudaMemcpy(d_a, h_a, bytes, H2D);', c:'// ③ 主机 → 设备'},
+  {t:'vecAdd<<<grid, block>>>(d_a, d_b, d_c, n);', c:'// ④ 启动 kernel'},
+  {t:''},
+  {t:'__global__ void vecAdd(const float* a, const float* b, float* c, int n) {'},
+  {t:'    int i = blockIdx.x * blockDim.x + threadIdx.x;', c:'// ⑤ 我是谁'},
+  {t:'    if (i < n) c[i] = a[i] + b[i];', c:'// ⑥ 各自读写'},
+  {t:'}'},
+  {t:''},
+  {t:'cudaMemcpy(h_c, d_c, bytes, D2H);', c:'// ⑦ 设备 → 主机'}
+];
+
+const STEPS = [
+  { n:'程序开始。此刻内存里什么都没有 —— 我们得先申请三块主机内存来放 a、b、c 三个数组。',
+    hl:[0] },
+  { n:'三块主机内存拿到了，各 <b>4 MB</b>（1048576 个 float）。接着把数据填进去：a 放 0,1,2…，b 放 0,2,4…',
+    hl:[0] },
+  { n:'CPU 不能直接计算显存。所以还要在<b>显卡上</b>申请三块同样大的空间：<code>cudaMalloc</code>。注意：这个函数是 CPU 执行的，它只是"遥控"显卡去分配。',
+    hl:[1] },
+  { n:'<code>cudaMemcpy</code> 把 a 和 b 从主机内存复制到显存。这是一次真实的物理搬运 —— 4 MB 数据要过一遍 PCIe。',
+    hl:[2] },
+  { n:'现在算要开多少活：<code>grid = ceil(n / block) = ceil(1048576 / 256) = 4096</code>。也就是 4096 个 block，每个 block 256 个线程。',
+    hl:[3] },
+  { n:'启动 kernel！<b>CUDA 造出 1048576 个线程</b>，打包成 4096 个 block，扔给 26 个车间。显卡不会空等 —— 一个车间同时驻留好几个 block，跑完一批换一批。',
+    hl:[3] },
+  { n:'放大看一个线程。它没有收到"你负责第 773 个元素"这种指令，它<b>自己算的</b>：<code>3×256+5=773</code>。',
+    hl:[6,7] },
+  { n:'所有线程同时这么算，于是 0…1048575 每个元素都被精确覆盖一次。<b>这不是 CUDA 分的块，是索引公式的结果。</b>',
+    hl:[7] },
+  { n:'算完了，结果还在显存里。用 <code>cudaMemcpy</code> 把 c 搬回主机，CPU 才能读。',
+    hl:[10] },
+  { n:'最后 CPU 逐个数比对：期望值是 <code>a[i]+b[i] = i + 2i = 3i</code>。全部对上了 —— <span class="okline">✓ 全部正确</span>',
+    hl:[10] }
+];
+
+/* ---------- 构建 DOM ---------- */
+const HOST = [
+  {id:'h_a', label:'h_a', tag:'4 MB', vals:[0,1,2,3,4,5,6,7]},
+  {id:'h_b', label:'h_b', tag:'4 MB', vals:[0,2,4,6,8,10,12,14]},
+  {id:'h_c', label:'h_c', tag:'4 MB', vals:[]}
+];
+const DEV = [
+  {id:'d_a', label:'d_a', tag:'', vals:[]},
+  {id:'d_b', label:'d_b', tag:'', vals:[]},
+  {id:'d_c', label:'d_c', tag:'', vals:[]}
+];
+
+function buildRows(container, defs, isDev){
+  defs.forEach(d=>{
+    const row = document.createElement('div');
+    row.className = 'row fade';
+    row.id = 'row_' + d.id;
+    row.innerHTML = '<div class="label">'+d.label+'</div>';
+    const cells = document.createElement('div');
+    cells.className = 'cells';
+    for(let k=0;k<8;k++){
+      const c = document.createElement('div');
+      c.className = 'cell fade' + (isDev?' dev':'');
+      c.id = d.id + '_c' + k;
+      c.dataset.show = d.vals.length ? '2' : '99';
+      c.textContent = d.vals.length ? d.vals[k] : '';
+      cells.appendChild(c);
+    }
+    const dots = document.createElement('span');
+    dots.className='dots'; dots.textContent='⋯';
+    cells.appendChild(dots);
+    row.appendChild(cells);
+    const tag = document.createElement('span');
+    tag.className='tag'; tag.textContent = d.tag;
+    tag.id = 'tag_'+d.id;
+    row.appendChild(tag);
+    container.appendChild(row);
+  });
+}
+buildRows(document.getElementById('hostRows'), HOST, false);
+buildRows(document.getElementById('devRows'), DEV, true);
+
+/* 代码面板 */
+const codeEl = document.getElementById('code');
+CODE.forEach((l,i)=>{
+  const s = document.createElement('span');
+  s.className = 'ln'; s.id = 'ln'+i;
+  s.dataset.line = i;
+  s.textContent = String(i+1).padStart(2,' ') + '  ' + l.t;
+  if(l.c){
+    const cm = document.createElement('span');
+    cm.className='cm'; cm.textContent = '   ' + l.c;
+    s.appendChild(cm);
+  }
+  codeEl.appendChild(s);
+});
+
+/* SM 格子 */
+const smsEl = document.getElementById('sms');
+for(let i=0;i<26;i++){ const s=document.createElement('div'); s.className='sm'; smsEl.appendChild(s); }
+
+/* 线程卡片 */
+const thEl = document.getElementById('threads');
+const THS = [3,4,5,6,7];
+THS.forEach(t=>{
+  const d = document.createElement('div');
+  d.className='th' + (t===5?' active':'');
+  d.innerHTML = '<b>'+t+'</b>线程';
+  thEl.appendChild(d);
+});
+
+/* ---------- 状态应用 ---------- */
+const grid = document.getElementById('sms').children;
+const qinfo = document.getElementById('qinfo');
+
+function setStep(k){
+  k = Math.max(0, Math.min(STEPS.length-1, k));
+  state.step = k;
+  const s = STEPS[k];
+
+  // code highlight
+  document.querySelectorAll('pre.code .ln').forEach((el,i)=>{
+    el.classList.toggle('hi', s.hl.includes(i));
+  });
+
+  // narration
+  document.getElementById('narration').innerHTML = s.n;
+  document.getElementById('badge').textContent = k+1;
+  document.getElementById('stepLabel').textContent = (k+1)+' / '+STEPS.length;
+
+  // host rows
+  document.getElementById('row_h_a').classList.toggle('on', k>=1);
+  document.getElementById('row_h_b').classList.toggle('on', k>=1);
+  document.getElementById('row_h_c').classList.toggle('on', k>=1);
+  // host values
+  ['h_a','h_b'].forEach(id=>{
+    for(let i=0;i<8;i++){
+      const c=document.getElementById(id+'_c'+i);
+      c.classList.toggle('on', k>=2);
+      c.textContent = (k>=2) ? (id==='h_a'?i:i*2) : '';
+    }
+  });
+  for(let i=0;i<8;i++){
+    const c=document.getElementById('h_c_c'+i);
+    const v = k>=10 ? i*3 : '';
+    c.classList.toggle('on', k>=10);
+    c.textContent = v;
+  }
+
+  // device rows
+  ['d_a','d_b','d_c'].forEach(id=>{
+    document.getElementById('row_'+id).classList.toggle('on', k>=3);
+    document.getElementById('tag_'+id).textContent = k>=3 ? '4 MB' : '';
+  });
+  ['d_a','d_b'].forEach(id=>{
+    for(let i=0;i<8;i++){
+      const c=document.getElementById(id+'_c'+i);
+      c.classList.toggle('on', k>=4);
+      c.textContent = k>=4 ? (id==='d_a'?i:i*2) : '';
+    }
+  });
+  for(let i=0;i<8;i++){
+    const c=document.getElementById('d_c_c'+i);
+    const v = k>=8 ? i*3 : '';
+    c.classList.toggle('on', k>=8);
+    c.textContent = v;
+  }
+
+  // SM
+  Array.from(grid).forEach((g,i)=>{
+    g.classList.toggle('busy', k>=6);
+    g.classList.remove('pulse');
+  });
+  if(k>=6) grid[0].classList.add('pulse');
+
+  qinfo.innerHTML =
+    '<div>block 总数：<b>'+(k>=5?GRID.toLocaleString():'—')+'</b></div>'+
+    '<div>每个 block 线程数：<b>'+(k>=5?BLOCK:'—')+'</b></div>'+
+    '<div>总线程数：<b>'+(k>=5?N.toLocaleString():'—')+'</b></div>';
+
+  // zoom
+  document.getElementById('zoom').classList.toggle('on', k===6);
+
+  // 动画：memcpy 飞格子
+  if(k===4 && state.prev!==4) fly('h_a','d_a'), fly('h_b','d_b');
+  if(k===10 && state.prev!==10) fly('d_c','h_c');
+
+  state.prev = k;
+}
+
+function fly(fromId, toId){
+  for(let i=0;i<8;i++){
+    const a = document.getElementById(fromId+'_c'+i).getBoundingClientRect();
+    const b = document.getElementById(toId+'_c'+i).getBoundingClientRect();
+    const chip = document.createElement('div');
+    chip.className='chip';
+    chip.style.left = a.left+'px'; chip.style.top = a.top+'px';
+    document.body.appendChild(chip);
+    const anim = chip.animate([
+      {transform:'translate(0,0) scale(1)', opacity:1},
+      {transform:'translate('+(b.left-a.left)+'px,'+(b.top-a.top)+'px) scale(.9)', opacity:.9}
+    ], {duration:700, delay:i*45, easing:'cubic-bezier(.45,0,.2,1)', fill:'forwards'});
+    anim.onfinish = ()=>chip.remove();
+  }
+}
+
+/* ---------- 控制 ---------- */
+const state = {step:0, prev:-1, timer:null};
+
+document.getElementById('next').onclick = ()=>{ stop(); setStep(state.step+1); };
+document.getElementById('prev').onclick = ()=>{ stop(); setStep(state.step-1); };
+document.getElementById('reset').onclick = ()=>{
+  stop();
+  // 重置视觉
+  document.querySelectorAll('.fade').forEach(e=>e.classList.remove('on'));
+  document.querySelectorAll('.cell').forEach(e=>{e.classList.remove('on');e.textContent='';});
+  state.prev=-1; setStep(0);
+};
+const playBtn = document.getElementById('play');
+playBtn.onclick = ()=>{
+  if(state.timer){ stop(); return; }
+  playBtn.textContent = '⏸ 暂停';
+  state.timer = setInterval(()=>{
+    if(state.step >= STEPS.length-1){ stop(); return; }
+    setStep(state.step+1);
+  }, 2400);
+  setStep(state.step+1);
+};
+function stop(){
+  if(state.timer){ clearInterval(state.timer); state.timer=null; }
+  playBtn.textContent='▶ 自动播放';
+}
+document.addEventListener('keydown', e=>{
+  if(e.key==='ArrowRight'){ stop(); setStep(state.step+1); }
+  if(e.key==='ArrowLeft'){ stop(); setStep(state.step-1); }
+});
+
+setStep(0);
+</script>
+</body>
+</html>

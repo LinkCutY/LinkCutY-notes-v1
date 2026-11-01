@@ -1,0 +1,601 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>a + b 的数据流动 · CSAPP 图 1-4 演示</title>
+<style>
+  *{box-sizing:border-box}
+  :root{
+    --bg:#0a0e14; --panel:#111821; --line:#22303f; --txt:#dbe6f2; --dim:#8194a8;
+    --data:#38bdf8; --addr:#a78bfa; --ctrl:#fbbf24; --ok:#34d399;
+  }
+  html,body{height:100%}
+  body{
+    margin:0;background:radial-gradient(1100px 620px at 28% -12%, #17222f 0%, #0a0e14 62%);
+    color:var(--txt);font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+    -webkit-font-smoothing:antialiased;
+  }
+  .wrap{max-width:1560px;margin:0 auto;padding:16px 20px 20px;display:flex;flex-direction:column;gap:13px;min-height:100vh}
+  header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  h1{font-size:18px;margin:0;font-weight:600;letter-spacing:.3px}
+  .sub{color:var(--dim);font-size:12.5px}
+  .sub code{color:var(--ctrl);background:rgba(251,191,36,.09);padding:1px 6px;border-radius:4px;font-family:ui-monospace,Consolas,monospace}
+
+  .main{display:grid;grid-template-columns:minmax(0,1fr) 336px;gap:14px;flex:1;min-height:0}
+  @media (max-width:1040px){ .main{grid-template-columns:1fr} }
+
+  .stage{background:#0c1219;border:1px solid var(--line);border-radius:14px;padding:6px;
+         position:relative;overflow:hidden;box-shadow:inset 0 0 80px rgba(0,0,0,.45);
+         display:grid;place-items:center;min-height:420px}
+  svg{width:100%;height:100%;max-height:100%;display:block}
+
+  /* ---------- SVG 样式 ---------- */
+  #scene text{font-family:"PingFang SC","Microsoft YaHei",system-ui,sans-serif}
+  #scene text:not([fill]){fill:#c7d5e4}
+  .comp-box{fill:#141d27;stroke:#2c3c4f;stroke-width:2;transition:stroke .25s, fill .25s}
+  .comp.hl .comp-box{stroke:var(--data);stroke-width:3;fill:#16283a}
+  .comp.hl text{fill:#ecf8ff}
+  .cpu-box{fill:#101821;stroke:#33465c;stroke-width:2.5;rx:10}
+  .wire{stroke:#37485d;stroke-width:9;stroke-linecap:round;transition:stroke .25s}
+  .wire.hl{stroke:var(--data)}
+  .flow{stroke:#6f8aa6;stroke-width:2.4;stroke-linecap:round;stroke-dasharray:7 13;opacity:.55;
+        animation:dash 1.1s linear infinite}
+  .wire.hl + .flow{stroke:#9fe4ff;opacity:.95}
+  @keyframes dash{to{stroke-dashoffset:-40}}
+  .thin{stroke:#3a4d63;stroke-width:2;fill:none}
+  .route{fill:none;stroke-width:2.5;stroke-dasharray:6 8;opacity:.45}
+  .pkt{filter:drop-shadow(0 0 9px currentColor)}
+  .pkt-lbl{font-size:15px;font-weight:600;text-anchor:middle;font-family:ui-monospace,Consolas,monospace}
+  #scene text.hint{fill:#5d7086 !important;font-size:12px}
+
+  /* ---------- 右侧面板 ---------- */
+  .panel{background:var(--panel);border:1px solid var(--line);border-radius:14px;padding:15px 16px;
+         display:flex;flex-direction:column;gap:12px;overflow:auto}
+  .stepno{font-size:11.5px;letter-spacing:1.5px;color:var(--data);text-transform:uppercase;font-weight:600}
+  #stepTitle{font-size:16.5px;margin:0;font-weight:600;line-height:1.35}
+  #stepDesc{margin:0;font-size:13px;line-height:1.72;color:#a9bacd}
+  .block{border-top:1px solid var(--line);padding-top:10px}
+  .block h3{font-size:11.5px;letter-spacing:1.2px;color:var(--dim);margin:0 0 7px;font-weight:600;text-transform:uppercase}
+  .kv{display:flex;justify-content:space-between;gap:8px;font-size:12.5px;padding:3.5px 0}
+  .kv span{color:var(--dim)}
+  .kv b{font-family:ui-monospace,Consolas,monospace;font-weight:600;color:#dceaf7;padding:0 5px;border-radius:4px}
+  .kv b.changed{animation:flash .9s ease-out}
+  @keyframes flash{0%{background:rgba(56,189,248,.42);color:#fff}100%{background:transparent}}
+  .memrow{display:flex;justify-content:space-between;font-size:12.5px;padding:3px 0;
+          font-family:ui-monospace,Consolas,monospace}
+  .memrow .ad{color:#5d7086}
+  .inputs{display:flex;align-items:center;gap:8px;font-size:12.5px;color:var(--dim);flex-wrap:wrap}
+  .inputs input{width:58px;background:#0b1219;border:1px solid var(--line);color:var(--txt);
+                border-radius:6px;padding:5px 7px;font-family:ui-monospace,Consolas,monospace;font-size:13px}
+  .inputs input:focus{outline:none;border-color:var(--data)}
+
+  /* ---------- 控制条 ---------- */
+  .controls{display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+            background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:9px 13px}
+  button{background:#17222e;border:1px solid #2c3c4f;color:#cfdded;padding:7px 15px;border-radius:8px;
+         font-size:13px;cursor:pointer;transition:.18s;font-family:inherit}
+  button:hover{background:#1e2c3b;border-color:#3d5470;color:#fff}
+  button.primary{background:linear-gradient(180deg,#1b6f96,#155a7a);border-color:#2a90bd;color:#eafaff;font-weight:600}
+  button.primary:hover{background:linear-gradient(180deg,#2084b0,#1a6b91)}
+  .dots{display:flex;gap:6px;margin-left:auto;align-items:center}
+  .dot{width:9px;height:9px;border-radius:50%;background:#243444;transition:.25s;cursor:pointer}
+  .dot.on{background:var(--data);box-shadow:0 0 9px rgba(56,189,248,.75)}
+  select{background:#17222e;border:1px solid #2c3c4f;color:#cfdded;border-radius:8px;padding:6px 8px;font-size:12.5px;font-family:inherit}
+  .foot{color:#5d7086;font-size:11.5px;line-height:1.7}
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>一次 <code style="color:#fbbf24">c = a + b</code>，在硬件里走了多远？</h1>
+    <span class="sub">结构参照《深入理解计算机系统》图 1-4 · 一个典型系统的硬件组成</span>
+  </header>
+
+  <div class="main">
+    <div class="stage">
+      <svg id="scene" viewBox="0 0 1240 800" preserveAspectRatio="xMidYMid meet">
+        <defs>
+          <marker id="arw" viewBox="0 0 10 10" refX="9" refY="5" markerWidth="7" markerHeight="7" orient="auto-start-reverse">
+            <path d="M0,0 L10,5 L0,10 z" fill="#3d5170"/>
+          </marker>
+        </defs>
+
+        <!-- ===== I/O 总线（黄色带） ===== -->
+        <rect x="30" y="452" width="1180" height="44" rx="6"
+              fill="rgba(245,197,66,.075)" stroke="rgba(245,197,66,.32)" stroke-width="1.5" stroke-dasharray="10 7"/>
+        <text x="600" y="480" text-anchor="middle" font-size="15" fill="#d8b44a" opacity=".9">I/O 总线</text>
+
+        <!-- 扩展槽 -->
+        <g>
+          <rect x="1148" y="458" width="8" height="32" rx="2" fill="#2a3a4c"/>
+          <rect x="1162" y="458" width="8" height="32" rx="2" fill="#2a3a4c"/>
+          <rect x="1176" y="458" width="8" height="32" rx="2" fill="#2a3a4c"/>
+          <text x="1112" y="524" text-anchor="middle" font-size="11.5" class="hint">扩展槽（网卡等）</text>
+        </g>
+
+        <!-- ===== 总线走线 ===== -->
+        <g id="w-sys-wrap">
+          <line id="w-sys" class="wire" x1="393" y1="296" x2="567" y2="296"/>
+          <line class="flow" x1="393" y1="296" x2="567" y2="296"/>
+        </g>
+        <g id="w-mem-wrap">
+          <line id="w-mem" class="wire" x1="655" y1="296" x2="837" y2="296"/>
+          <line class="flow" x1="655" y1="296" x2="837" y2="296"/>
+        </g>
+
+        <!-- 竖向连线 -->
+        <line id="w-cpu-io" class="wire" x1="225" y1="326" x2="225" y2="452" stroke-width="7"/>
+        <line class="flow" x1="225" y1="326" x2="225" y2="452"/>
+        <line id="w-usb" class="wire" x1="170" y1="496" x2="170" y2="548" stroke-width="7"/>
+        <line id="w-gpu" class="wire" x1="395" y1="496" x2="395" y2="548" stroke-width="7"/>
+        <line id="w-diskc" class="wire" x1="770" y1="496" x2="770" y2="548" stroke-width="7"/>
+
+        <line id="w-disk" class="thin" x1="770" y1="614" x2="770" y2="638" marker-end="url(#arw)"/>
+        <line id="w-mon" class="thin" x1="395" y1="614" x2="395" y2="674" marker-end="url(#arw)"/>
+
+        <!-- CPU 内部连线 -->
+        <line class="thin" x1="121" y1="96" x2="168" y2="96" marker-end="url(#arw)"/>
+        <line class="thin" x1="88" y1="116" x2="88" y2="266" marker-end="url(#arw)"/>
+        <line class="thin" x1="222" y1="206" x2="222" y2="266" marker-end="url(#arw)"/>
+        <line class="thin" x1="222" y1="268" x2="222" y2="208" marker-end="url(#arw)"/>
+        <line class="thin" x1="276" y1="116" x2="310" y2="116" marker-end="url(#arw)"/>
+        <line class="thin" x1="310" y1="142" x2="276" y2="142" marker-end="url(#arw)"/>
+
+        <!-- ===== CPU ===== -->
+        <g id="g-cpu" class="comp">
+          <rect class="cpu-box" x="30" y="30" width="392" height="332" rx="10"/>
+          <text x="52" y="58" font-size="16" fill="#93a7bd">CPU 中央处理单元</text>
+
+          <g id="g-pc" class="comp">
+            <rect class="comp-box" x="55" y="78" width="66" height="36" rx="5"/>
+            <text x="88" y="102" text-anchor="middle" font-size="15">PC</text>
+          </g>
+
+          <g id="g-reg" class="comp">
+            <text x="222" y="72" text-anchor="middle" font-size="13" fill="#93a7bd">寄存器文件</text>
+            <rect class="comp-box" x="170" y="80" width="106" height="126" rx="6"/>
+            <rect x="174" y="86" width="98" height="26" rx="3" fill="#0e1620" stroke="#2a3a4c"/>
+            <text x="223" y="104" text-anchor="middle" font-size="12" id="irLabel">IR</text>
+            <rect x="174" y="116" width="98" height="26" rx="3" fill="#0e1620" stroke="#2a3a4c"/>
+            <text x="223" y="134" text-anchor="middle" font-size="12" id="r1Label">R1</text>
+            <rect x="174" y="146" width="98" height="26" rx="3" fill="#0e1620" stroke="#2a3a4c"/>
+            <text x="223" y="164" text-anchor="middle" font-size="12" id="r2Label">R2</text>
+            <rect x="174" y="176" width="98" height="26" rx="3" fill="#0e1620" stroke="#2a3a4c"/>
+            <text x="223" y="194" text-anchor="middle" font-size="12" id="r3Label">R3</text>
+          </g>
+
+          <g id="g-alu" class="comp">
+            <rect class="comp-box" x="312" y="80" width="84" height="76" rx="6"/>
+            <text x="354" y="124" text-anchor="middle" font-size="15">ALU</text>
+          </g>
+
+          <g id="g-iface" class="comp">
+            <rect class="comp-box" x="55" y="268" width="340" height="56" rx="6"/>
+            <text x="225" y="302" text-anchor="middle" font-size="15">总线接口</text>
+          </g>
+        </g>
+
+        <!-- ===== I/O 桥 ===== -->
+        <g id="g-bridge" class="comp">
+          <rect class="comp-box" x="565" y="256" width="92" height="80" rx="6"/>
+          <text x="611" y="301" text-anchor="middle" font-size="14">I/O 桥</text>
+        </g>
+
+        <!-- ===== 主存储器 ===== -->
+        <g id="g-mem" class="comp">
+          <rect class="comp-box" x="837" y="216" width="186" height="168" rx="7"/>
+          <text x="930" y="242" text-anchor="middle" font-size="14" fill="#93a7bd">主存储器</text>
+          <line x1="845" y1="252" x2="1015" y2="252" stroke="#22303f"/>
+          <text x="846" y="276" font-size="13" font-family="ui-monospace,Consolas,monospace" fill="#8fa6bd">a</text>
+          <text id="memA" x="930" y="276" font-size="14" font-family="ui-monospace,Consolas,monospace" fill="#38bdf8">?</text>
+          <text x="846" y="304" font-size="13" font-family="ui-monospace,Consolas,monospace" fill="#8fa6bd">b</text>
+          <text id="memB" x="930" y="304" font-size="14" font-family="ui-monospace,Consolas,monospace" fill="#38bdf8">?</text>
+          <text x="846" y="332" font-size="13" font-family="ui-monospace,Consolas,monospace" fill="#8fa6bd">sum</text>
+          <text id="memS" x="930" y="332" font-size="14" font-family="ui-monospace,Consolas,monospace" fill="#38bdf8">—</text>
+          <text id="memState" x="846" y="364" font-size="11.5" class="hint">程序尚未载入</text>
+        </g>
+
+        <!-- ===== I/O 设备 ===== -->
+        <g id="g-usb" class="comp">
+          <rect class="comp-box" x="110" y="548" width="120" height="66" rx="6"/>
+          <text x="170" y="587" text-anchor="middle" font-size="13.5">USB 控制器</text>
+        </g>
+
+        <g id="g-gpu" class="comp">
+          <rect class="comp-box" x="330" y="548" width="132" height="66" rx="6"/>
+          <text x="396" y="587" text-anchor="middle" font-size="13.5">图形适配器</text>
+        </g>
+
+        <g id="g-diskc" class="comp">
+          <rect class="comp-box" x="700" y="548" width="140" height="66" rx="6"/>
+          <text x="770" y="587" text-anchor="middle" font-size="13.5">磁盘控制器</text>
+        </g>
+
+        <g id="g-disk" class="comp">
+          <path d="M722,640 L818,640 L818,700 A48,13 0 0 1 722,700 Z" fill="#141d27" stroke="#2c3c4f" stroke-width="2"/>
+          <ellipse cx="770" cy="640" rx="48" ry="13" fill="#182430" stroke="#2c3c4f" stroke-width="2"/>
+          <text x="770" y="686" text-anchor="middle" font-size="12.5">磁盘</text>
+          <text x="770" y="748" text-anchor="middle" font-size="11.5" class="hint">hello 可执行文件</text>
+        </g>
+
+        <g id="g-screen" class="comp">
+          <rect class="comp-box" x="336" y="676" width="120" height="66" rx="6"/>
+          <text x="396" y="700" text-anchor="middle" font-size="11.5" class="hint">显示器</text>
+          <text id="screenText" x="396" y="728" text-anchor="middle" font-size="20"
+                font-family="ui-monospace,Consolas,monospace" fill="#34d399">—</text>
+        </g>
+
+        <text x="34" y="792" class="hint">参照《深入理解计算机系统》图 1-4 · 本图省略了 cache 与流水线</text>
+
+        <!-- 动态图层 -->
+        <g id="routes"></g>
+        <g id="packets"></g>
+      </svg>
+    </div>
+
+    <aside class="panel">
+      <div class="stepno" id="stepNo">READY</div>
+      <h2 id="stepTitle">准备就绪</h2>
+      <p id="stepDesc">先设定 a 和 b，然后点「播放」，跟着光点看一次加法在硬件里是怎么走完的。</p>
+
+      <div class="block">
+        <h3>寄存器</h3>
+        <div class="kv"><span>PC（程序计数器）</span><b id="v-pc">0x4004e8</b></div>
+        <div class="kv"><span>IR（指令寄存器）</span><b id="v-ir">—</b></div>
+        <div class="kv"><span>R1</span><b id="v-r1">—</b></div>
+        <div class="kv"><span>R2</span><b id="v-r2">—</b></div>
+        <div class="kv"><span>R3</span><b id="v-r3">—</b></div>
+      </div>
+
+      <div class="block">
+        <h3>主存储器（数据区）</h3>
+        <div class="memrow"><span class="ad">0x1000 · a</span><span id="m-a">—</span></div>
+        <div class="memrow"><span class="ad">0x1004 · b</span><span id="m-b">—</span></div>
+        <div class="memrow"><span class="ad">0x1008 · sum</span><span id="m-s">—</span></div>
+      </div>
+
+      <div class="block">
+        <h3>输入</h3>
+        <div class="inputs">
+          a = <input id="ia" type="number" value="1" step="1">
+          b = <input id="ib" type="number" value="2" step="1">
+          <button id="apply">重新开始</button>
+        </div>
+      </div>
+
+      <p class="foot">提示：空格键播放/暂停，← → 切换步骤。</p>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button id="prev">← 上一步</button>
+    <button id="play" class="primary">▶ 播放</button>
+    <button id="next">下一步 →</button>
+    <button id="reset">重置</button>
+    <select id="speed">
+      <option value="0.6">0.6× 慢速</option>
+      <option value="1" selected>1×</option>
+      <option value="1.8">1.8× 快速</option>
+    </select>
+    <div class="dots" id="dots"></div>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+  var NS = "http://www.w3.org/2000/svg";
+  var scene = document.getElementById("scene");
+  var layerRoutes = document.getElementById("routes");
+  var layerPackets = document.getElementById("packets");
+  var C = { data:"#38bdf8", addr:"#a78bfa", ctrl:"#fbbf24", ok:"#34d399" };
+
+  var ia = document.getElementById("ia"), ib = document.getElementById("ib");
+
+  function baseState(){
+    return {
+      a: Number(ia.value) || 0,
+      b: Number(ib.value) || 0,
+      r1: null, r2: null, r3: null, sum: null,
+      ir: "\u2014", loaded: false, shown: false
+    };
+  }
+
+  var steps = [
+    { no:"STEP 01", title:"起点：程序躺在磁盘上",
+      desc:"hello 已经被编译器翻译成机器码，放在磁盘里。此时主存里还没有它，CPU 也还没开始干活。注意：磁盘上这一堆字节，只有被搬进主存、由 PC 指着，才叫「指令」。",
+      hl:["g-disk"], path:null },
+
+    { no:"STEP 02", title:"加载：磁盘 → 主存（DMA）",
+      desc:"操作系统让磁盘控制器把 hello 搬进主存。路径是：磁盘 → 磁盘控制器 → I/O 总线 → I/O 桥 → 内存总线 → 主存。全程 CPU 不参与搬运，这叫 DMA。搬完后，PC 被设成程序入口 0x4004e8。",
+      hl:["g-disk","g-diskc","g-bridge","g-mem"], wire:["w-disk","w-diskc","w-mem"], path:[[770,638],[770,580],[770,496],[611,496],[611,300],[657,300],[802,300]], color:C.data, label:"hello",
+      after:function(v){ v.loaded = true; } },
+
+    { no:"STEP 03", title:"取指：PC 把地址送出去",
+      desc:"PC 里存的是「下一条指令在哪」。这个地址从 PC 出发，经过总线接口 → 系统总线 → I/O 桥 → 内存总线，送到主存。注意：总线是共享资源，同一时刻只能有一个设备在说话，这就是总线的瓶颈所在。",
+      hl:["g-pc","g-iface","g-bridge","g-mem"], wire:["w-sys","w-mem"], path:[[88,96],[88,296],[393,296],[611,296],[655,296],[802,296]], color:C.addr, label:"0x4004e8" },
+
+    { no:"STEP 04", title:"主存把指令送回来",
+      desc:"主存按地址取出 4 个字节，沿原路返回，落进寄存器文件的 IR。到这里 CPU 才知道：「哦，这条是 LOAD a」。取指这一步，每条指令都要走一遍。",
+      hl:["g-reg","g-iface","g-bridge","g-mem"], wire:["w-sys","w-mem"], path:[[802,296],[655,296],[611,296],[222,296],[222,206]], color:C.data, label:"LOAD a",
+      after:function(v){ v.ir = "LOAD a"; } },
+
+    { no:"STEP 05", title:"取操作数 a：主存 → 寄存器",
+      desc:"CPU 把 a 的地址送到主存，主存取回它的值放进 R1。这一趟是整条链路里最慢的环节——主存访问大约 100 ns，而寄存器只要 0.3 ns，差了两个数量级。",
+      hl:["g-reg","g-mem"], wire:["w-sys","w-mem"], path:[[802,296],[655,296],[611,296],[222,296],[222,206]], color:C.data, label:"a",
+      after:function(v){ v.r1 = v.a; } },
+
+    { no:"STEP 06", title:"取操作数 b：主存 → 寄存器",
+      desc:"同样的路再走一遍，把 b 装进 R2。两份数据现在都在寄存器里了——因为 ALU 只认寄存器，它从不直接访问主存（这叫 load-store 架构）。",
+      hl:["g-reg","g-mem"], wire:["w-sys","w-mem"], path:[[802,296],[655,296],[611,296],[222,296],[222,206]], color:C.data, label:"b",
+      after:function(v){ v.r2 = v.b; } },
+
+    { no:"STEP 07", title:"送进 ALU：寄存器 → 运算单元",
+      desc:"控制器把 R1 和 R2 送到 ALU 的两个输入端口。ALU 是纯组合逻辑，它不会「记住」任何东西，算完就忘——结果必须写回寄存器才算数。",
+      hl:["g-reg","g-alu"], path:[[276,116],[310,116]], color:C.ctrl, label:"R1, R2" },
+
+    { no:"STEP 08", title:"ALU 算完，写回 R3",
+      desc:"ALU 做一次加法（对 CPU 来说只是几个时钟周期），结果经内部数据通路写回 R3。到这一步，计算结果已经在 CPU 内部了，但还在寄存器里，掉电就没。",
+      hl:["g-alu","g-reg"], path:[[310,142],[276,142]], color:C.ok, label:"+",
+      after:function(v){ v.r3 = v.r1 + v.r2; } },
+
+    { no:"STEP 09", title:"存回主存：R3 → 主存",
+      desc:"STORE 指令把 R3 的值送到总线接口，经系统总线 → I/O 桥 → 内存总线，写进主存的 sum。又是那条最慢的路。一个加法，主存来回跑了四趟。",
+      hl:["g-reg","g-iface","g-bridge","g-mem"], wire:["w-sys","w-mem"], path:[[222,206],[222,296],[393,296],[611,296],[655,296],[802,296]], color:C.ok, label:"sum",
+      after:function(v){ v.sum = v.r3; } },
+
+    { no:"STEP 10", title:"输出：主存 → 图形适配器",
+      desc:"printf 最终要把字符写出去。CPU 把结果交给图形适配器（它管着屏幕上的像素），数据走的是 I/O 总线，而不是系统总线——这就是为什么图里画了两条总线。",
+      hl:["g-mem","g-bridge","g-gpu"], wire:["w-mem","w-gpu"], path:[[802,340],[657,340],[611,340],[611,496],[395,496],[395,548]], color:C.ok, label:"3" },
+
+    { no:"STEP 11", title:"屏幕亮起",
+      desc:"图形适配器把字符画进帧缓冲，显示器定时扫描并显示出来。从你敲下回车到看见结果，数据在磁盘、主存、CPU、总线、显卡之间走了十几个来回——而这只是 a + b。",
+      hl:["g-gpu","g-screen"], wire:["w-mon"], path:[[395,614],[395,662]], color:C.ok, label:"3",
+      after:function(v){ v.shown = true; } }
+  ];
+
+  var V = baseState();
+  var cur = -1, playing = false, token = 0, timer = null;
+  var speed = 1;
+
+  /* ---------- 状态 ---------- */
+  function syncStateTo(i){
+    V = baseState();
+    for (var k = 0; k <= i && k < steps.length; k++){
+      if (steps[k].after) steps[k].after(V);
+    }
+  }
+
+  function setVal(id, val){
+    var el = document.getElementById(id);
+    if (!el) return;
+    var s = (val === null || val === undefined) ? "\u2014" : String(val);
+    if (el.textContent !== s){
+      el.textContent = s;
+      el.classList.remove("changed");
+      void el.offsetWidth;
+      el.classList.add("changed");
+    }
+  }
+
+  function render(){
+    setVal("v-pc", "0x4004e8");
+    setVal("v-ir", V.ir);
+    setVal("v-r1", V.r1);
+    setVal("v-r2", V.r2);
+    setVal("v-r3", V.r3);
+    setVal("m-a", V.a);
+    setVal("m-b", V.b);
+    setVal("m-s", V.sum);
+
+    document.getElementById("memA").textContent = V.loaded ? V.a : "?";
+    document.getElementById("memB").textContent = V.loaded ? V.b : "?";
+    document.getElementById("memS").textContent = (V.sum === null) ? "\u2014" : V.sum;
+    document.getElementById("memState").textContent = V.loaded ? "程序已载入" : "程序尚未载入";
+    document.getElementById("screenText").textContent = V.shown ? V.sum : "\u2014";
+  }
+
+  /* ---------- 高亮 ---------- */
+  function clearHL(){
+    var els = scene.querySelectorAll(".hl");
+    for (var i = 0; i < els.length; i++) els[i].classList.remove("hl");
+  }
+  function applyHL(step){
+    clearHL();
+    (step.hl || []).forEach(function(id){
+      var el = document.getElementById(id);
+      if (el) el.classList.add("hl");
+    });
+    (step.wire || []).forEach(function(id){
+      var el = document.getElementById(id);
+      if (el) el.classList.add("hl");
+    });
+  }
+
+  /* ---------- 路径几何 ---------- */
+  function segs(pts){
+    var out = [], total = 0;
+    for (var i = 0; i < pts.length - 1; i++){
+      var dx = pts[i+1][0] - pts[i][0], dy = pts[i+1][1] - pts[i][1];
+      var len = Math.sqrt(dx*dx + dy*dy);
+      out.push({ a: pts[i], b: pts[i+1], len: len });
+      total += len;
+    }
+    return { segs: out, total: total };
+  }
+  function pointAt(geo, t){
+    var d = t * geo.total;
+    for (var i = 0; i < geo.segs.length; i++){
+      var s = geo.segs[i];
+      if (d <= s.len){
+        var k = s.len ? d / s.len : 0;
+        return [ s.a[0] + (s.b[0]-s.a[0])*k, s.a[1] + (s.b[1]-s.a[1])*k ];
+      }
+      d -= s.len;
+    }
+    var last = geo.segs[geo.segs.length-1];
+    return [ last.b[0], last.b[1] ];
+  }
+
+  function clearLayers(){
+    while (layerRoutes.firstChild) layerRoutes.removeChild(layerRoutes.firstChild);
+    while (layerPackets.firstChild) layerPackets.removeChild(layerPackets.firstChild);
+  }
+
+  /* ---------- 动画 ---------- */
+  function animate(step, onDone){
+    var pts = step.path;
+    var myToken = ++token;
+
+    var poly = document.createElementNS(NS, "polyline");
+    poly.setAttribute("points", pts.map(function(p){ return p[0] + "," + p[1]; }).join(" "));
+    poly.setAttribute("class", "route");
+    poly.setAttribute("stroke", step.color);
+    layerRoutes.appendChild(poly);
+
+    var g = document.createElementNS(NS, "g");
+    var circle = document.createElementNS(NS, "circle");
+    circle.setAttribute("r", "10");
+    circle.setAttribute("fill", step.color);
+    circle.setAttribute("class", "pkt");
+    circle.setAttribute("color", step.color);
+
+    var label = document.createElementNS(NS, "text");
+    label.setAttribute("class", "pkt-lbl");
+    label.setAttribute("fill", step.color);
+    label.textContent = step.label || "";
+
+    g.appendChild(circle);
+    g.appendChild(label);
+    layerPackets.appendChild(g);
+
+    var geo = segs(pts);
+    var baseDur = geo.total > 300 ? 1700 : 700;
+    var dur = Math.max(260, baseDur / speed);
+    var t0 = performance.now();
+
+    function frame(now){
+      if (myToken !== token) return;
+      var p = Math.min(1, (now - t0) / dur);
+      var pos = pointAt(geo, p);
+      circle.setAttribute("cx", pos[0]);
+      circle.setAttribute("cy", pos[1]);
+      label.setAttribute("x", pos[0]);
+      label.setAttribute("y", pos[1] - 18);
+      if (p < 1){
+        requestAnimationFrame(frame);
+      } else {
+        if (onDone) onDone();
+      }
+    }
+    requestAnimationFrame(frame);
+  }
+
+  /* ---------- 步骤控制 ---------- */
+  function updateChrome(i){
+    var step = (i >= 0) ? steps[i] : null;
+    document.getElementById("stepNo").textContent = step ? step.no : "READY";
+    document.getElementById("stepTitle").textContent = step ? step.title : "准备就绪";
+    document.getElementById("stepDesc").textContent = step ? step.desc :
+      "先设定 a 和 b，然后点「播放」，跟着光点看一次加法在硬件里是怎么走完的。";
+
+    var dots = document.getElementById("dots").children;
+    for (var k = 0; k < dots.length; k++) dots[k].classList.toggle("on", k === i);
+  }
+
+  function clearTimer(){
+    if (timer){ clearTimeout(timer); timer = null; }
+  }
+
+  function goTo(i){
+    clearTimer();
+    if (i < 0){
+      token++;
+      clearLayers();
+      cur = -1;
+      syncStateTo(-1);
+      render();
+      clearHL();
+      updateChrome(-1);
+      return;
+    }
+    if (i >= steps.length) return;
+    cur = i;
+    var step = steps[i];
+    token++;
+    clearLayers();
+    syncStateTo(i - 1);
+    render();
+    applyHL(step);
+    updateChrome(i);
+
+    if (!step.path){
+      if (step.after) step.after(V);
+      render();
+      if (playing) schedule(i);
+      return;
+    }
+    animate(step, function(){
+      if (step.after) step.after(V);
+      render();
+      if (playing) schedule(i);
+    });
+  }
+
+  function schedule(i){
+    if (i >= steps.length - 1){
+      playing = false;
+      document.getElementById("play").textContent = "\u25b6 播放";
+      return;
+    }
+    timer = setTimeout(function(){ goTo(i + 1); }, 850 / speed);
+  }
+
+  /* ---------- 控件 ---------- */
+  document.getElementById("next").onclick = function(){ playing = false; setPlayLabel(); goTo(Math.min(cur + 1, steps.length - 1)); };
+  document.getElementById("prev").onclick = function(){ playing = false; setPlayLabel(); goTo(Math.max(cur - 1, 0)); stopPlay(); };
+  document.getElementById("reset").onclick = function(){ playing = false; setPlayLabel(); goTo(-1); };
+
+  document.getElementById("play").onclick = function(){
+    if (playing){ playing = false; setPlayLabel(); clearTimer(); token++; clearLayers(); return; }
+    playing = true;
+    setPlayLabel();
+    goTo(cur < 0 ? 0 : cur);
+  };
+
+  function setPlayLabel(){
+    document.getElementById("play").textContent = playing ? "\u23f8 暂停" : "\u25b6 播放";
+  }
+  function stopPlay(){ playing = false; setPlayLabel(); }
+
+  document.getElementById("speed").onchange = function(e){ speed = Number(e.target.value); };
+  document.getElementById("apply").onclick = function(){
+    playing = false; setPlayLabel(); goTo(-1); updateChrome(-1);
+  };
+
+  document.addEventListener("keydown", function(e){
+    if (e.target.tagName === "INPUT") return;
+    if (e.key === " "){ e.preventDefault(); document.getElementById("play").click(); }
+    if (e.key === "ArrowRight"){ document.getElementById("next").click(); }
+    if (e.key === "ArrowLeft"){ document.getElementById("prev").click(); }
+  });
+
+  /* ---------- 圆点 ---------- */
+  (function buildDots(){
+    var box = document.getElementById("dots");
+    steps.forEach(function(s, i){
+      var d = document.createElement("div");
+      d.className = "dot";
+      d.title = s.title;
+      d.onclick = function(){ playing = false; setPlayLabel(); goTo(i); };
+      box.appendChild(d);
+    });
+  })();
+
+  render();
+  updateChrome(-1);
+})();
+</script>
+</body>
+</html>

@@ -1,0 +1,626 @@
+<!DOCTYPE html>
+<html lang="zh-CN">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width,initial-scale=1">
+<title>进程、核、时间：调度器在干什么</title>
+<style>
+  *{box-sizing:border-box}
+  :root{
+    --bg:#0a0e14; --panel:#111821; --line:#22303f; --txt:#dbe6f2; --dim:#8194a8;
+    --run:#38bdf8; --ready:#a78bfa; --io:#f59e0b; --done:#3d5166;
+  }
+  html,body{height:100%}
+  body{margin:0;background:radial-gradient(1100px 620px at 28% -12%, #17222f 0%, #0a0e14 62%);
+       color:var(--txt);font-family:"Segoe UI","PingFang SC","Microsoft YaHei",system-ui,sans-serif;
+       -webkit-font-smoothing:antialiased;overflow:hidden}
+  .wrap{height:100vh;display:flex;flex-direction:column;padding:14px 18px 14px;gap:10px}
+  header{display:flex;align-items:baseline;gap:14px;flex-wrap:wrap}
+  h1{font-size:17px;margin:0;font-weight:600}
+  .sub{color:var(--dim);font-size:12.5px}
+
+  .main{flex:1;display:grid;grid-template-columns:minmax(0,1fr) 306px;gap:12px;min-height:0}
+  .left{display:flex;flex-direction:column;gap:10px;min-width:0;min-height:0}
+
+  .chips{display:flex;gap:8px;flex-wrap:wrap}
+  .chip{background:var(--panel);border:1px solid var(--line);border-radius:9px;padding:6px 11px;
+        font-size:12px;color:var(--dim);display:flex;gap:7px;align-items:baseline;white-space:nowrap}
+  .chip b{color:#e6f2ff;font-size:13.5px;font-family:ui-monospace,Consolas,monospace;font-weight:600}
+  .chip .u{font-size:11px;color:#5d7086}
+
+  .stage{flex:1;background:#0c1219;border:1px solid var(--line);border-radius:12px;
+         padding:8px;min-height:0;overflow:hidden;position:relative}
+  canvas{display:block;width:100%}
+
+  .legend{display:flex;gap:16px;font-size:11.5px;color:var(--dim);padding-left:4px;flex-wrap:wrap}
+  .legend i{display:inline-block;width:11px;height:11px;border-radius:3px;margin-right:5px;vertical-align:-1px}
+
+  aside{background:var(--panel);border:1px solid var(--line);border-radius:12px;padding:13px 14px;
+        display:flex;flex-direction:column;gap:11px;min-height:0;overflow:auto}
+  aside h3{font-size:11px;letter-spacing:1.1px;color:var(--dim);margin:0;font-weight:600;text-transform:uppercase}
+  .row{display:flex;justify-content:space-between;align-items:center;font-size:12.5px;color:#a9bacd}
+  .row output{font-family:ui-monospace,Consolas,monospace;color:#e6f2ff}
+  input[type=range]{width:100%;accent-color:#38bdf8;height:18px}
+  .seg{display:flex;gap:5px}
+  .seg button{flex:1;padding:5px 0;font-size:11.5px;border-radius:6px}
+  .seg button.on{background:#1c3d52;border-color:#2f7fa3;color:#dff3ff}
+
+  .plist{display:flex;flex-direction:column;gap:4px;overflow:auto;min-height:0}
+  .pitem{display:grid;grid-template-columns:10px 34px 42px 1fr;gap:7px;align-items:center;font-size:11.5px}
+  .pitem .dot{width:10px;height:10px;border-radius:3px}
+  .pitem .pname{font-family:ui-monospace,Consolas,monospace;color:#b6c8da}
+  .pitem .st{font-size:10.5px;padding:1px 5px;border-radius:4px;text-align:center}
+  .st.run{background:rgba(56,189,248,.18);color:#7dd3fc}
+  .st.ready{background:rgba(167,139,250,.18);color:#c4b5fd}
+  .st.io{background:rgba(245,158,11,.16);color:#fcd34d}
+  .st.done{background:rgba(100,116,139,.16);color:#94a3b8}
+  .bar{height:5px;background:#0b1219;border-radius:3px;overflow:hidden}
+  .bar i{display:block;height:100%;background:currentColor;opacity:.55;transition:width .1s linear}
+
+  .controls{display:flex;align-items:center;gap:9px;flex-wrap:wrap;
+            background:var(--panel);border:1px solid var(--line);border-radius:11px;padding:8px 12px}
+  button{background:#17222e;border:1px solid #2c3c4f;color:#cfdded;padding:6px 14px;border-radius:8px;
+         font-size:12.5px;cursor:pointer;transition:.16s;font-family:inherit}
+  button:hover{background:#1e2c3b;border-color:#3d5470;color:#fff}
+  button.primary{background:linear-gradient(180deg,#1b6f96,#155a7a);border-color:#2a90bd;color:#eafaff;font-weight:600}
+  .banner{margin-left:auto;font-size:12px;color:#5fd3a0;opacity:0;transition:.4s}
+  .banner.show{opacity:1}
+
+  .tip{font-size:12px;color:var(--dim);margin-left:4px}
+  @media (max-width:980px){
+    body{overflow:auto}
+    .wrap{height:auto;min-height:100vh;padding:10px 10px 14px}
+    header{gap:6px}
+    h1{font-size:15px;line-height:1.35}
+    .sub{display:none}
+    .main{grid-template-columns:1fr;gap:9px}
+    .left{min-height:auto}
+    .stage{min-height:300px}
+    aside{overflow:visible;max-height:none}
+    .plist{max-height:240px}
+    .chip{font-size:11px;padding:5px 8px}
+    .chip b{font-size:12.5px}
+    .legend{gap:10px;font-size:10.5px}
+    .controls{gap:7px;padding:7px 9px}
+    .controls button{padding:7px 11px;font-size:12px}
+    .tip{display:none}
+  }
+</style>
+</head>
+<body>
+<div class="wrap">
+  <header>
+    <h1>4 个核，12 个进程：谁在跑，谁在等？</h1>
+    <span class="sub">每个格子 = 10 ms · 调度器按时间片轮转 · 阻塞的进程不占 CPU</span>
+  </header>
+
+  <div class="main">
+    <div class="left">
+      <div class="chips">
+        <div class="chip">时间 <b id="m-t">0</b><span class="u">格</span></div>
+        <div class="chip">运行 <b id="m-run">0</b></div>
+        <div class="chip">就绪 <b id="m-ready">0</b></div>
+        <div class="chip">阻塞 <b id="m-io">0</b></div>
+        <div class="chip">完成 <b id="m-done">0</b></div>
+        <div class="chip">CPU 利用率 <b id="m-util">0%</b></div>
+        <div class="chip">上下文切换 <b id="m-ctx">0</b></div>
+      </div>
+
+      <div class="stage"><canvas id="cv"></canvas></div>
+
+      <div class="legend">
+        <span><i style="background:#38bdf8"></i>运行（占着核）</span>
+        <span><i style="background:rgba(167,139,250,.45)"></i>就绪（在队列里等）</span>
+        <span><i style="background:#22303f"></i>阻塞（等 IO，不占 CPU）</span>
+        <span><i style="background:#0f1720;border:1px solid #22303f"></i>空闲核</span>
+      </div>
+    </div>
+
+    <aside>
+      <h3>参数</h3>
+      <div>
+        <div class="row"><span>CPU 核数</span><output id="o-cores">4</output></div>
+        <input type="range" id="s-cores" min="1" max="8" value="4">
+      </div>
+      <div>
+        <div class="row"><span>进程数</span><output id="o-procs">12</output></div>
+        <input type="range" id="s-procs" min="1" max="16" value="12">
+      </div>
+      <div>
+        <div class="row"><span>时间片（格）</span><output id="o-q">4</output></div>
+        <input type="range" id="s-q" min="1" max="12" value="4">
+      </div>
+      <div>
+        <div class="row"><span>速度</span><output id="o-speed">1×</output></div>
+        <input type="range" id="s-speed" min="1" max="8" value="2">
+      </div>
+
+      <h3>程序类型</h3>
+      <div class="seg" id="prof">
+        <button data-p="cpu" class="on">CPU 密集</button>
+        <button data-p="io">IO 密集</button>
+        <button data-p="mix">混合</button>
+      </div>
+
+      <h3>预设场景</h3>
+      <div class="seg" style="flex-direction:column">
+        <button data-preset="fit">刚好够用：4 核 4 进程</button>
+        <button data-preset="over">超配：4 核 12 进程</button>
+        <button data-preset="ioover">IO 型：4 核 12 进程</button>
+        <button data-preset="single">单核：1 核 6 进程</button>
+      </div>
+
+      <h3>进程状态</h3>
+      <div class="plist" id="plist"></div>
+    </aside>
+  </div>
+
+  <div class="controls">
+    <button id="play" class="primary">▶ 播放</button>
+    <button id="step">单步</button>
+    <button id="reset">重置</button>
+    <button id="view">视角：按核</button>
+    <span class="tip" id="tip"></span>
+    <span class="banner" id="banner"></span>
+  </div>
+</div>
+
+<script>
+(function(){
+  "use strict";
+
+  /* ---------------- 工具 ---------------- */
+  function mulberry32(a){
+    return function(){
+      a |= 0; a = a + 0x6D2B79F5 | 0;
+      var t = Math.imul(a ^ a >>> 15, 1 | a);
+      t = t + Math.imul(t ^ t >>> 7, 61 | t) ^ t;
+      return ((t ^ t >>> 14) >>> 0) / 4294967296;
+    };
+  }
+  function rnd(rng, lo, hi){ return lo + Math.floor(rng() * (hi - lo + 1)); }
+  function clamp(v, a, b){ return v < a ? a : (v > b ? b : v); }
+
+  var PALETTE = ['#38bdf8','#a78bfa','#fbbf24','#34d399','#f472b6','#fb923c',
+                 '#60a5fa','#4ade80','#e879f9','#facc15','#2dd4bf','#f87171',
+                 '#c084fc','#fda4af','#93c5fd','#86efac'];
+
+  var PROFILES = {
+    cpu: { cpu:[14,26], io:[4,9],  bursts:[2,3] },
+    io:  { cpu:[6,12],  io:[22,40], bursts:[2,3] },
+    mix: { cpu:[10,22], io:[10,22], bursts:[2,3] }
+  };
+
+  /* ---------------- 状态 ---------------- */
+  var sim = null;
+  var view = 'core';
+  var playing = false;
+  var profile = 'cpu';
+  var speed = 1;
+
+  var cv = document.getElementById('cv');
+  var ctx = cv.getContext('2d');
+  var stage = cv.parentElement;
+
+  function newSim(cores, procs, quantum, prof, seed){
+    var rng = mulberry32(seed);
+    var cfg = PROFILES[prof];
+    var list = [];
+    for (var i = 0; i < procs; i++){
+      var cpuBurst = rnd(rng, cfg.cpu[0], cfg.cpu[1]);
+      list.push({
+        id:i, name:'P' + (i+1), color: PALETTE[i % PALETTE.length],
+        state:'ready', cpuLeft: cpuBurst, cpuMax: cpuBurst, ioLeft: 0,
+        cpuMin: cfg.cpu[0], cpuMaxBurst: cfg.cpu[1],
+        ioMin: cfg.io[0], ioMax: cfg.io[1],
+        burstsLeft: rnd(rng, cfg.bursts[0], cfg.bursts[1]),
+        ran: 0, finishT: -1
+      });
+    }
+    return {
+      rng: rng, coreCount: cores, quantum: quantum,
+      t: 0, procs: list, ready: list.map(function(p){ return p.id; }),
+      coreProc: new Array(cores).fill(null),
+      coreQ: new Array(cores).fill(0),
+      history: [], done: false,
+      stats: { ctx: 0, busyTicks: 0, preempt: 0 }
+    };
+  }
+
+  function assignFree(){
+    var n = sim.coreCount;
+    for (var c = 0; c < n; c++){
+      if (sim.coreProc[c] === null && sim.ready.length){
+        var pid = sim.ready.shift();
+        var p = sim.procs[pid];
+        if (p.state === 'ready'){
+          p.state = 'run';
+          sim.coreProc[c] = pid;
+          sim.coreQ[c] = 0;
+          sim.stats.ctx++;
+        }
+      }
+    }
+  }
+
+  function step(){
+    if (!sim || sim.done) return;
+    var n = sim.coreCount;
+    var ran = new Array(n).fill(null);
+
+    /* 1. 已占核的进程跑一格 */
+    for (var c = 0; c < n; c++){
+      var pid = sim.coreProc[c];
+      if (pid === null || pid === undefined) continue;
+      var p = sim.procs[pid];
+      ran[c] = pid;
+      p.cpuLeft--;
+      p.ran++;
+      sim.stats.busyTicks++;
+      if (p.cpuLeft <= 0){
+        p.burstsLeft--;
+        sim.coreProc[c] = null;
+        sim.coreQ[c] = 0;
+        if (p.burstsLeft <= 0){
+          p.state = 'done';
+          p.finishT = sim.t;
+        } else {
+          p.state = 'io';
+          p.ioLeft = rnd(sim.rng, p.ioMin, p.ioMax);
+        }
+      }
+    }
+
+    /* 2. 阻塞的进程把 IO 时间走完 */
+    for (var k = 0; k < sim.procs.length; k++){
+      var q = sim.procs[k];
+      if (q.state === 'io'){
+        q.ioLeft--;
+        if (q.ioLeft <= 0){
+          q.state = 'ready';
+          q.cpuLeft = rnd(sim.rng, q.cpuMin, q.cpuMaxBurst);
+          q.cpuMax = q.cpuLeft;
+          sim.ready.push(q.id);
+        }
+      }
+    }
+
+    /* 3. 记录这一格 */
+    sim.history.push({
+      ran: ran,
+      states: sim.procs.map(function(pp){ return pp.state; })
+    });
+
+    /* 4. 时间片到期：只有别人在等的时候才抢占 */
+    for (var c2 = 0; c2 < n; c2++){
+      var pid2 = sim.coreProc[c2];
+      if (pid2 === null) continue;
+      sim.coreQ[c2]++;
+      if (sim.coreQ[c2] >= sim.quantum && sim.ready.length > 0){
+        var pp2 = sim.procs[pid2];
+        pp2.state = 'ready';
+        sim.ready.push(pid2);
+        sim.coreProc[c2] = null;
+        sim.coreQ[c2] = 0;
+        sim.stats.preempt++;
+      }
+    }
+
+    /* 5. 填补空闲核 */
+    assignFree();
+
+    sim.t++;
+    if (sim.procs.every(function(x){ return x.state === 'done'; })) sim.done = true;
+  }
+
+  /* ---------------- 布局 / 绘制 ---------------- */
+  var cssW = 800, cssH = 300, dpr = 1, rowHUsed = 30;
+
+  function measure(){
+    dpr = window.devicePixelRatio || 1;
+    cssW = Math.max(320, stage.clientWidth - 16);
+    var rows = (view === 'core') ? sim.coreCount : sim.procs.length;
+    var availH = Math.max(200, stage.clientHeight - 16);
+    rowHUsed = clamp(Math.floor((availH - 34) / rows), 20, 160);
+    var rowH = rowHUsed;
+    cssH = 26 + rows * rowH + 8;
+    cv.width = Math.floor(cssW * dpr);
+    cv.height = Math.floor(cssH * dpr);
+    cv.style.height = cssH + 'px';
+    ctx.setTransform(dpr, 0, 0, dpr, 0, 0);
+  }
+
+  function draw(){
+    if (!sim) return;
+    var W = cssW, H = cssH;
+    ctx.clearRect(0, 0, W, H);
+    ctx.fillStyle = '#0c1219';
+    ctx.fillRect(0, 0, W, H);
+
+    var isCore = (view === 'core');
+    var rows = isCore ? sim.coreCount : sim.procs.length;
+    var rowH = rowHUsed;
+    var padL = 46, padT = 26, padR = 6;
+    var cw = 12;
+    var maxTicks = Math.max(1, Math.floor((W - padL - padR) / cw));
+    var now = sim.t;
+    var t0 = Math.max(0, now - maxTicks + 1);
+
+    /* 行底色 + 行标签 */
+    for (var r = 0; r < rows; r++){
+      var y = padT + r * rowH;
+      ctx.fillStyle = (r % 2) ? '#0f1720' : '#111a24';
+      ctx.fillRect(padL, y, W - padL - padR, rowH - 3);
+      ctx.fillStyle = '#7f93a8';
+      ctx.font = '11px ui-monospace, Consolas, monospace';
+      ctx.textAlign = 'right';
+      ctx.textBaseline = 'middle';
+      ctx.fillText(isCore ? ('核' + (r + 1)) : sim.procs[r].name, padL - 7, y + (rowH - 3) / 2);
+    }
+
+    /* 时间刻度 */
+    ctx.textAlign = 'center';
+    ctx.textBaseline = 'alphabetic';
+    ctx.font = '10px ui-monospace, Consolas, monospace';
+
+    for (var i = 0; i < maxTicks; i++){
+      var t = t0 + i;
+      if (t > now) break;
+      var x = padL + i * cw;
+
+      if (t % 5 === 0){
+        ctx.fillStyle = '#5d7086';
+        ctx.fillText(String(t), x + cw / 2, padT - 8);
+        ctx.strokeStyle = 'rgba(255,255,255,.035)';
+        ctx.beginPath();
+        ctx.moveTo(x + 0.5, padT);
+        ctx.lineTo(x + 0.5, padT + rows * rowH - 3);
+        ctx.stroke();
+      }
+
+      var rec = (t < now) ? sim.history[t] : null;
+      var isNow = (t === now);
+
+      for (var r2 = 0; r2 < rows; r2++){
+        var y2 = padT + r2 * rowH;
+        var hgt = rowH - 5;
+        var pid, st;
+
+        if (isCore){
+          pid = rec ? rec.ran[r2] : sim.coreProc[r2];
+          if (pid === null || pid === undefined){
+            ctx.fillStyle = '#16202b';
+            ctx.fillRect(x, y2 + 1, cw - 1, hgt);
+          } else {
+            ctx.fillStyle = sim.procs[pid].color;
+            ctx.globalAlpha = isNow ? 1 : 0.92;
+            ctx.fillRect(x, y2 + 1, cw - 1, hgt);
+            ctx.globalAlpha = 1;
+          }
+        } else {
+          st = rec ? rec.states[r2] : sim.procs[r2].state;
+          if (st === 'run'){
+            ctx.fillStyle = sim.procs[r2].color;
+            ctx.globalAlpha = isNow ? 1 : 0.92;
+            ctx.fillRect(x, y2 + 1, cw - 1, hgt);
+            ctx.globalAlpha = 1;
+          } else if (st === 'ready'){
+            ctx.fillStyle = sim.procs[r2].color;
+            ctx.globalAlpha = 0.26;
+            ctx.fillRect(x, y2 + 1, cw - 1, hgt);
+            ctx.globalAlpha = 1;
+          } else if (st === 'io'){
+            ctx.fillStyle = '#243447';
+            ctx.fillRect(x, y2 + 1, cw - 1, hgt);
+          } else {
+            ctx.fillStyle = '#101820';
+            ctx.fillRect(x, y2 + 1, cw - 1, hgt);
+          }
+        }
+      }
+    }
+
+    /* "现在" 的竖线 */
+    var xn = padL + (now - t0) * cw;
+    if (xn <= W - padR + 2){
+      ctx.strokeStyle = 'rgba(56,189,248,.55)';
+      ctx.lineWidth = 1.5;
+      ctx.setLineDash([3, 3]);
+      ctx.beginPath();
+      ctx.moveTo(xn + 0.5, padT - 4);
+      ctx.lineTo(xn + 0.5, padT + rows * rowH - 2);
+      ctx.stroke();
+      ctx.setLineDash([]);
+    }
+  }
+
+  /* ---------------- 面板 ---------------- */
+  var plistEl = document.getElementById('plist');
+  var pnodes = [];
+
+  function buildPanel(){
+    plistEl.innerHTML = '';
+    pnodes = [];
+    sim.procs.forEach(function(p){
+      var d = document.createElement('div');
+      d.className = 'pitem';
+      d.innerHTML = '<span class="dot" style="background:' + p.color + '"></span>' +
+                    '<span class="pname">' + p.name + '</span>' +
+                    '<span class="st ready">就绪</span>' +
+                    '<span class="bar"><i style="width:100%;color:' + p.color + '"></i></span>';
+      plistEl.appendChild(d);
+      pnodes.push({
+        st: d.querySelector('.st'),
+        bar: d.querySelector('.bar i'),
+        last: ''
+      });
+    });
+  }
+
+  var STATE_TXT = { run:'运行', ready:'就绪', io:'阻塞', done:'完成' };
+
+  function renderPanel(){
+    var running = 0, ready = 0, io = 0, done = 0;
+    for (var i = 0; i < sim.procs.length; i++){
+      var p = sim.procs[i];
+      if (p.state === 'run') running++;
+      else if (p.state === 'ready') ready++;
+      else if (p.state === 'io') io++;
+      else done++;
+
+      var node = pnodes[i];
+      if (!node) continue;
+      if (node.last !== p.state){
+        node.st.textContent = STATE_TXT[p.state];
+        node.st.className = 'st ' + p.state;
+        node.last = p.state;
+      }
+      var pct = p.cpuMax ? clamp(Math.round(p.cpuLeft / p.cpuMax * 100), 0, 100) : 0;
+      node.bar.style.width = pct + '%';
+      node.bar.style.color = p.color;
+    }
+
+    document.getElementById('m-t').textContent = sim.t;
+    document.getElementById('m-run').textContent = running;
+    document.getElementById('m-ready').textContent = ready;
+    document.getElementById('m-io').textContent = io;
+    document.getElementById('m-done').textContent = done;
+
+    var cap = sim.coreCount * Math.max(1, sim.t);
+    var util = Math.round(sim.stats.busyTicks / cap * 100);
+    document.getElementById('m-util').textContent = util + '%';
+    document.getElementById('m-ctx').textContent = sim.stats.ctx;
+
+    var tip = document.getElementById('tip');
+    var need = running + ready;
+    tip.textContent = '并发需求 ' + need + ' / ' + sim.coreCount + ' 核';
+
+    var banner = document.getElementById('banner');
+    if (sim.done){
+      banner.classList.add('show');
+      banner.textContent = '全部完成 · 用时 ' + sim.t + ' 格 · 切换 ' + sim.stats.ctx + ' 次 · 利用率 ' + util + '%';
+    } else {
+      banner.classList.remove('show');
+      banner.textContent = '';
+    }
+  }
+
+  /* ---------------- 主循环 ---------------- */
+  var lastTs = 0, acc = 0;
+
+  function loop(ts){
+    if (!lastTs) lastTs = ts;
+    var dt = Math.min(120, ts - lastTs);
+    lastTs = ts;
+
+    if (playing && !sim.done){
+      acc += dt;
+      var interval = 46 / speed;
+      var guard = 0;
+      while (acc >= interval && guard++ < 6){
+        step();
+        acc -= interval;
+      }
+    } else {
+      acc = 0;
+    }
+
+    draw();
+    renderPanel();
+    requestAnimationFrame(loop);
+  }
+
+  /* ---------------- 重来 ---------------- */
+  function reset(seed){
+    var cores = parseInt(document.getElementById('s-cores').value, 10);
+    var procs = parseInt(document.getElementById('s-procs').value, 10);
+    var q = parseInt(document.getElementById('s-q').value, 10);
+    sim = newSim(cores, procs, q, profile, seed || Date.now() % 100000);
+    document.querySelector('h1').textContent = cores + ' 个核，' + procs + ' 个进程：谁在跑，谁在等？';
+    assignFree();
+    measure();
+    buildPanel();
+    draw();
+    renderPanel();
+    lastTs = 0; acc = 0;
+  }
+
+  /* ---------------- 事件 ---------------- */
+  document.getElementById('play').onclick = function(){
+    if (sim.done) reset();
+    playing = !playing;
+    this.textContent = playing ? '⏸ 暂停' : '▶ 播放';
+    lastTs = 0; acc = 0;
+  };
+  document.getElementById('step').onclick = function(){
+    playing = false;
+    document.getElementById('play').textContent = '▶ 播放';
+    step();
+  };
+  document.getElementById('reset').onclick = function(){
+    playing = false;
+    document.getElementById('play').textContent = '▶ 播放';
+    reset();
+  };
+  document.getElementById('view').onclick = function(){
+    view = (view === 'core') ? 'proc' : 'core';
+    this.textContent = '视角：' + (view === 'core' ? '按核' : '按进程');
+    measure();
+    draw();
+  };
+
+  ['cores','procs','q'].forEach(function(k){
+    var el = document.getElementById('s-' + k);
+    el.oninput = function(){
+      document.getElementById('o-' + k).textContent = this.value;
+      reset();
+    };
+  });
+  document.getElementById('s-speed').oninput = function(){
+    speed = parseInt(this.value, 10) / 2;
+    document.getElementById('o-speed').textContent = (speed % 1 === 0 ? speed : speed.toFixed(1)) + '×';
+  };
+
+  document.getElementById('prof').onclick = function(e){
+    var b = e.target.closest('button');
+    if (!b) return;
+    profile = b.dataset.p;
+    [].forEach.call(this.children, function(x){ x.classList.toggle('on', x === b); });
+    reset();
+  };
+
+  document.querySelectorAll('[data-preset]').forEach(function(b){
+    b.onclick = function(){
+      var p = b.dataset.preset;
+      var cfg = { fit:[4,4,'cpu'], over:[4,12,'cpu'], ioover:[4,12,'io'], single:[1,6,'mix'] }[p];
+      document.getElementById('s-cores').value = cfg[0];
+      document.getElementById('s-procs').value = cfg[1];
+      document.getElementById('o-cores').textContent = cfg[0];
+      document.getElementById('o-procs').textContent = cfg[1];
+      profile = cfg[2];
+      [].forEach.call(document.getElementById('prof').children, function(x){
+        x.classList.toggle('on', x.dataset.p === profile);
+      });
+      playing = false;
+      document.getElementById('play').textContent = '▶ 播放';
+      reset();
+    };
+  });
+
+  document.addEventListener('keydown', function(e){
+    if (e.key === ' '){ e.preventDefault(); document.getElementById('play').click(); }
+  });
+
+  window.addEventListener('resize', function(){ measure(); draw(); });
+
+  /* ---------------- 启动 ---------------- */
+  speed = parseInt(document.getElementById('s-speed').value, 10) / 2;
+  document.getElementById('o-speed').textContent = (speed % 1 === 0 ? speed : speed.toFixed(1)) + '×';
+  reset(12345);
+  requestAnimationFrame(loop);
+
+  window.__demo = { sim: function(){ return sim; }, step: step, reset: reset };
+})();
+</script>
+</body>
+</html>

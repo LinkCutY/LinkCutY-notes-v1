@@ -1,0 +1,70 @@
+/* 中文正文用系统字体，英文和代码交给 VitePress 默认栈 */
+:root {
+  --vp-font-family-base: 'Inter', -apple-system, 'PingFang SC', 'Microsoft YaHei',
+    'Segoe UI', system-ui, sans-serif;
+  --vp-c-brand-1: #2f7fa3;
+  --vp-c-brand-2: #3d94ba;
+  --vp-c-brand-3: #4aa6cf;
+}
+
+/* 表格别撑破版心 */
+.vp-doc table {
+  display: table;
+  width: 100%;
+}
+
+/* 内嵌演示的外框 */
+.demo-frame {
+  margin: 24px 0;
+  border: 1px solid var(--vp-c-divider);
+  border-radius: 12px;
+  overflow: hidden;
+  background: var(--vp-c-bg-soft);
+}
+
+.demo-frame__bar {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 8px 12px;
+  border-bottom: 1px solid var(--vp-c-divider);
+  font-size: 12px;
+  color: var(--vp-c-text-2);
+}
+
+.demo-frame__dots {
+  display: inline-flex;
+  gap: 5px;
+}
+
+.demo-frame__dots i {
+  width: 9px;
+  height: 9px;
+  border-radius: 50%;
+  background: var(--vp-c-divider);
+}
+
+.demo-frame__title {
+  flex: 1;
+  font-family: var(--vp-font-family-mono);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.demo-frame__open {
+  color: var(--vp-c-brand-1);
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.demo-frame__open:hover {
+  text-decoration: underline;
+}
+
+.demo-frame iframe {
+  display: block;
+  width: 100%;
+  border: 0;
+  background: #0a0e14;
+}
