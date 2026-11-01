@@ -1,0 +1,22 @@
+{
+  "files.exclude": {
+    "**/node_modules": true,
+    "docs/.vitepress/dist": true,
+    "docs/.vitepress/cache": true
+  },
+  "search.exclude": {
+    "**/node_modules": true,
+    "docs/.vitepress/dist": true,
+    "docs/.vitepress/cache": true,
+    "package-lock.json": true
+  },
+  "editor.wordWrap": "on",
+  "editor.fontSize": 14,
+  "markdown.preview.fontSize": 15,
+  "markdown.preview.lineHeight": 1.7,
+  "[markdown]": {
+    "editor.quickSuggestions": { "other": false, "comments": false, "strings": false }
+  },
+  "git.autofetch": true,
+  "git.confirmSync": false
+}

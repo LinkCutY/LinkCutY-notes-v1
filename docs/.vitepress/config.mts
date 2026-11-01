@@ -62,6 +62,11 @@ export default defineConfig({
       text: '最后更新',
       formatOptions: { dateStyle: 'short', timeStyle: 'short' },
     },
+    editLink: {
+      pattern: 'https://github.com/LinkCutY/LinkCutY.github.io/edit/main/docs/:path',
+      text: '在 GitHub 上编辑这页',
+    },
+    socialLinks: [{ icon: 'github', link: 'https://github.com/LinkCutY' }],
     darkModeSwitchLabel: '配色',
     sidebarMenuLabel: '目录',
     returnToTopLabel: '回到顶部',
