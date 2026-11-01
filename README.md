@@ -74,6 +74,9 @@ docs/
       ├─ DemoFrame.vue      内嵌演示的外框组件
       └─ custom.css         配色与排版微调
 .github/workflows/deploy.yml  自动部署
+.vscode/                    编辑器配置与"预览/发布"任务
+tools/publish.ps1           发布脚本
+发布.bat / 预览.bat           双击就能用的入口
 ```
 
 ## 在文章里嵌演示
@@ -85,6 +88,25 @@ docs/
 ```
 
 组件会自动处理 base 路径，并给一个"新窗口打开"的入口。
+
+## 图形化怎么管
+
+四条路，按"要装多少东西"排：
+
+| 入口 | 干什么 | 适合 |
+| --- | --- | --- |
+| **双击 `发布.bat`** | 构建自检 + 提交 + 推送，一条龙 | 只想发文章，不想碰命令 |
+| **双击 `预览.bat`** | 起本地服务，自动开浏览器，改完自动刷新 | 边写边看效果 |
+| **VS Code 任务** | `Ctrl+Shift+P` → `Tasks: Run Task` → 选"预览"或"发布" | 编辑和发布在同一个窗口 |
+| **笔记页底部"在 GitHub 上编辑这页"** | 跳到 GitHub 网页编辑器，选 Commit changes 后自动重新部署 | 临时改一两句话，手边没电脑 |
+
+另外装了 **GitHub Desktop** 的话，直接 Add existing repository 选这个文件夹，改动列表、提交、推送全是点按钮。
+
+发布脚本 `tools/publish.ps1` 做三件事，构建不过就不会推：
+
+1. `npm run build` —— Markdown 写坏了（比如没闭合的代码块、坏掉的链接）这里就会报错并停下；
+2. `git add -A` + `git commit`，提交信息自动带上时间；
+3. `git push` —— GitHub Actions 收到后大约一分钟重新部署。
 
 ## 想改的东西
 
